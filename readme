@@ -1,0 +1,4 @@
+Run the following two commands
+
+chmod +x install.sh
+./install.sh
