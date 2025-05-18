@@ -7,18 +7,16 @@ import board
 import busio
 from adafruit_ads1x15.analog_in import AnalogIn
 from adafruit_ads1x15.ads1115 import ADS1115
-import matplotlib.pyplot as plt
 
 # --- ADC SETUP ---
 i2c = busio.I2C(board.SCL, board.SDA)
 ads = ADS1115(i2c)
-chan = AnalogIn(ads, ADS1115.P0)
+chan = AnalogIn(ads, 0)  # Channel 0 (A0)
 
 # --- Constants ---
-SAMPLERATE = 100  # Samples per second for plotting (low due to ADC speed)
-DURATION = 1  # Seconds for FFT capture
 TH_TIME = 3  # Seconds threshold must persist before triggering
 DISPLAY_DURATION = 1800  # 30 minutes
+SAMPLERATE = 100  # Not used for FFT, just for buffer trimming
 
 # --- Thresholds (dB) ---
 AmberTH = 85
@@ -42,7 +40,6 @@ last_threshold_time = None
 last_threshold_reached = None
 max_threshold_reached = None
 image_lock = threading.Lock()
-fft_data = []
 
 # --- Convert ADC Voltage to dBA ---
 def get_noise_level():
@@ -60,7 +57,6 @@ def get_image_for_noise(noise_level):
         RedTH: "red",
         AmberTH: "amber"
     }
-
     for threshold, image_key in sorted(thresholds.items(), reverse=True):
         if noise_level >= threshold:
             return images[image_key], threshold
@@ -75,42 +71,11 @@ def reset_display():
             current_image = None
             max_threshold_reached = None
 
-# --- FFT Plot Thread ---
-def fft_plot():
-    plt.ion()
-    fig, ax = plt.subplots()
-    line, = ax.plot([], [], lw=2)
-    ax.set_ylim(0, 1)
-    ax.set_xlim(0, SAMPLERATE / 2)
-    ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel("Amplitude")
-    ax.set_title("Sound Frequency Spectrum")
-
-    while True:
-        if len(fft_data) >= SAMPLERATE * DURATION:
-            data = np.array(fft_data[-SAMPLERATE * DURATION:])
-            fft = np.abs(np.fft.rfft(data - np.mean(data)))
-            freqs = np.fft.rfftfreq(len(data), 1 / SAMPLERATE)
-
-            line.set_xdata(freqs)
-            line.set_ydata(fft / np.max(fft))
-            ax.set_ylim(0, 1.1)
-            ax.set_xlim(0, SAMPLERATE // 2)
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-        time.sleep(1)
-
-# --- Start Threads ---
+# --- Start Reset Thread ---
 threading.Thread(target=reset_display, daemon=True).start()
-threading.Thread(target=fft_plot, daemon=True).start()
 
 # --- Main Loop ---
 while True:
-    voltage = chan.voltage
-    fft_data.append(voltage)
-    if len(fft_data) > SAMPLERATE * 60:
-        fft_data = fft_data[-SAMPLERATE * 60:]  # Keep last 60s for plotting
-
     noise_level = get_noise_level()
     new_image, threshold_reached = get_image_for_noise(noise_level)
 
